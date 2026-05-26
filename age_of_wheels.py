@@ -663,7 +663,7 @@ class AgeOfWheelsApp:
 
         title = tk.Label(
             sidebar,
-            text="Age of Wheels",
+            text="Siyaya! Age of Wheels",
             bg="#111827",
             fg="#f8fafc",
             font=("Segoe UI", 22, "bold")
@@ -681,10 +681,7 @@ class AgeOfWheelsApp:
         ttk.Label(summary, textvariable=self.turn_var, style="CardTitle.TLabel").pack(anchor="w")
         ttk.Label(summary, textvariable=self.phase_var, style="Body.TLabel", wraplength=300).pack(anchor="w", pady=(8, 0))
 
-        cash_card = ttk.Frame(sidebar, style="Card.TFrame", padding=14)
-        cash_card.pack(fill="x", pady=(0, 12))
-        ttk.Label(cash_card, text="Latest Cash Flow", style="CardTitle.TLabel").pack(anchor="w")
-        ttk.Label(cash_card, textvariable=self.cash_event_var, style="Body.TLabel", wraplength=300).pack(anchor="w", pady=(8, 0))
+        
 
         self.player_cards = []
         for _ in range(2):
