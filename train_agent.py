@@ -1,25 +1,8 @@
-"""Starter training scaffold for Siyaya.
-
-This file is intentionally beginner-friendly. It gives you:
-
-1. A small training environment around GameState
-2. A legal-action function
-3. A first feature vector
-4. A reward calculation
-5. A random baseline agent
-6. A simulation loop you can run from the terminal
-
-Run:
-    python3 train_agent.py
-
-This does NOT train a smart agent yet. It is the step before training.
-Its job is to prove that the game can be played automatically without Tkinter.
-"""
-
 from __future__ import annotations
 
 import os
 import random
+from collections import defaultdict
 from typing import Dict, List, Sequence, Tuple
 
 from age_of_wheels import GameState, MAP_FILE, MapStorage, TARGET_POINTS
@@ -43,11 +26,13 @@ class SiyayaTrainingEnv:
         self.decision_count = 0
 
     def reset(self) -> List[float]:
+        """Resets game for new match"""
         self.game = GameState(self.map_data)
         self.decision_count = 0
         return self.get_feature_vector()
 
     def get_legal_actions(self) -> List[Action]:
+        """dictates what the agent can do and returns decisions for each valid action"""
         game = self.game
         if game.winner:
             return []
@@ -78,10 +63,12 @@ class SiyayaTrainingEnv:
         return []
 
     def distance_to_johannesburg(self, start_name: str) -> int:
+        """Calculates how far a position is from Joburg"""
         distances = self.game.bfs_distances(start_name)
         return distances.get("Johannesburg", len(self.node_names))
 
     def count_owned_routes(self, player_name: str) -> int:
+        """Counts how many routes/arcs a player owns if invested in"""
         return sum(1 for edge in self.game.edges.values() if edge["owner"] == player_name)
 
     def count_unclaimed_adjacent(self, player_name: str) -> int:
@@ -262,6 +249,93 @@ class RandomAgent:
         return random.choice(list(legal_actions))
 
 
+class QAgent:
+    """Very small tabular Q-learning agent for a first training experiment."""
+
+    def __init__(
+        self,
+        alpha: float = 0.15,
+        gamma: float = 0.95,
+        epsilon: float = 1.0,
+        epsilon_decay: float = 0.995,
+        epsilon_min: float = 0.05,
+    ):
+        self.alpha = alpha
+        self.gamma = gamma
+        self.epsilon = epsilon
+        self.epsilon_decay = epsilon_decay
+        self.epsilon_min = epsilon_min
+        self.q_table = defaultdict(float)
+
+    def state_key(self, observation: Sequence[float]) -> Tuple:
+        """Discretises the observation so Q-learning has a manageable state key."""
+
+        def bucket_points(value: float) -> int:
+            return int(min(10, value // 20))
+
+        def bucket_distance(value: float) -> int:
+            return int(min(10, value))
+
+        def bucket_count(value: float) -> int:
+            return int(min(8, value))
+
+        return (
+            bucket_points(observation[0]),
+            bucket_points(observation[1]),
+            bucket_distance(observation[2]),
+            bucket_distance(observation[3]),
+            bucket_count(observation[4]),
+            bucket_count(observation[5]),
+            bucket_count(observation[6]),
+            bucket_count(observation[7]),
+            bucket_count(observation[8]),
+            int(observation[9]),
+            int(observation[10]),
+            int(observation[11]),
+            int(observation[12]),
+            int(observation[13]),
+            int(observation[14]),
+            bucket_points(observation[15]),
+        )
+
+    def choose_action(self, observation: Sequence[float], legal_actions: Sequence[Action]) -> Action:
+        if not legal_actions:
+            raise ValueError("choose_action received no legal actions.")
+
+        state = self.state_key(observation)
+        if random.random() < self.epsilon:
+            return random.choice(list(legal_actions))
+
+        scored_actions = [(self.q_table[(state, action)], action) for action in legal_actions]
+        best_score = max(score for score, _ in scored_actions)
+        best_actions = [action for score, action in scored_actions if score == best_score]
+        return random.choice(best_actions)
+
+    def learn(
+        self,
+        observation: Sequence[float],
+        action: Action,
+        reward: float,
+        next_observation: Sequence[float],
+        next_legal_actions: Sequence[Action],
+        done: bool,
+    ) -> None:
+        state = self.state_key(observation)
+        next_state = self.state_key(next_observation)
+        current_q = self.q_table[(state, action)]
+
+        if done or not next_legal_actions:
+            target = reward
+        else:
+            next_best = max(self.q_table[(next_state, next_action)] for next_action in next_legal_actions)
+            target = reward + self.gamma * next_best
+
+        self.q_table[(state, action)] = current_q + self.alpha * (target - current_q)
+
+    def decay_epsilon(self) -> None:
+        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+
+
 def play_one_game(env: SiyayaTrainingEnv, agent_one, agent_two, verbose: bool = False) -> Dict:
     observation = env.reset()
     done = False
@@ -330,18 +404,92 @@ def run_random_baseline(game_count: int = 10, verbose_first_game: bool = True) -
     print(f"Average turns: {total_turns / game_count:.2f}")
 
 
+def train_q_agent(
+    episode_count: int = 2000,
+    report_every: int = 200,
+    evaluation_games: int = 50,
+) -> QAgent:
+    """Trains a first Q-learning agent by letting it control both sides."""
+
+    env = SiyayaTrainingEnv()
+    agent = QAgent()
+
+    for episode in range(1, episode_count + 1):
+        observation = env.reset()
+        done = False
+        episode_reward = 0.0
+
+        while not done:
+            legal_actions = env.get_legal_actions()
+            if not legal_actions:
+                break
+
+            action = agent.choose_action(observation, legal_actions)
+            next_observation, reward, done, _info = env.step(action)
+            next_legal_actions = env.get_legal_actions()
+            agent.learn(observation, action, reward, next_observation, next_legal_actions, done)
+
+            observation = next_observation
+            episode_reward += reward
+
+        agent.decay_epsilon()
+
+        if episode % report_every == 0:
+            eval_summary = evaluate_agent(agent, evaluation_games)
+            print(
+                f"Episode {episode:04d} | epsilon={agent.epsilon:.3f} | "
+                f"last_episode_reward={episode_reward:.2f} | "
+                f"eval_p1_wins={eval_summary['Player 1']} | "
+                f"eval_p2_wins={eval_summary['Player 2']} | "
+                f"eval_draws={eval_summary['draw']}"
+            )
+
+    return agent
+
+
+def evaluate_agent(agent: QAgent, game_count: int = 50) -> Dict[str, int]:
+    """Evaluates the learned agent with exploration turned off."""
+
+    env = SiyayaTrainingEnv()
+    saved_epsilon = agent.epsilon
+    agent.epsilon = 0.0
+
+    wins = {
+        "Player 1": 0,
+        "Player 2": 0,
+        "draw": 0,
+    }
+
+    for _ in range(game_count):
+        result = play_one_game(env, agent, agent, verbose=False)
+        winner = result["winner"] if result["winner"] else "draw"
+        wins[winner] += 1
+
+    agent.epsilon = saved_epsilon
+    return wins
+
+
 def print_first_steps_tutorial() -> None:
     print("First training steps for Siyaya")
     print("1. Run this file and make sure random-vs-random games finish.")
     print("2. Read get_legal_actions() and understand every action type.")
     print("3. Read get_feature_vector() and decide what extra information you need.")
     print("4. Read _calculate_reward() and adjust the reward shaping carefully.")
-    print("5. Replace RandomAgent with a learning agent only after steps 1-4 work.\n")
+    print("5. Then read QAgent, train_q_agent(), and evaluate_agent().\n")
 
 
 def main() -> None:
     print_first_steps_tutorial()
-    run_random_baseline(game_count=5, verbose_first_game=True)
+    print("=== Random baseline ===")
+    run_random_baseline(game_count=2, verbose_first_game=False)
+
+    print("\n=== Q-learning demo ===")
+    print("This is a short demo run. Increase episode_count later once you are comfortable.")
+    agent = train_q_agent(episode_count=10, report_every=1, evaluation_games=2)
+
+    print("\n=== Final evaluation ===")
+    summary = evaluate_agent(agent, game_count=2)
+    print(summary)
 
 
 if __name__ == "__main__":
