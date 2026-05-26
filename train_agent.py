@@ -370,8 +370,12 @@ def play_one_game(env: SiyayaTrainingEnv, agent_one, agent_two, verbose: bool = 
     }
 
 
-def run_random_baseline(game_count: int = 10, verbose_first_game: bool = True) -> None:
-    env = SiyayaTrainingEnv()
+def run_random_baseline(
+    game_count: int = 10,
+    verbose_first_game: bool = True,
+    max_turns: int = 80,
+) -> None:
+    env = SiyayaTrainingEnv(max_turns=max_turns)
     red_agent = RandomAgent()
     blue_agent = RandomAgent()
 
@@ -405,13 +409,15 @@ def run_random_baseline(game_count: int = 10, verbose_first_game: bool = True) -
 
 
 def train_q_agent(
-    episode_count: int = 2000,
-    report_every: int = 200,
-    evaluation_games: int = 50,
+    episode_count: int = 100,
+    report_every: int = 10,
+    evaluation_games: int = 1,
+    max_turns: int = 80,
+    evaluation_max_turns: int = 80,
 ) -> QAgent:
     """Trains a first Q-learning agent by letting it control both sides."""
 
-    env = SiyayaTrainingEnv()
+    env = SiyayaTrainingEnv(max_turns=max_turns)
     agent = QAgent()
 
     for episode in range(1, episode_count + 1):
@@ -435,10 +441,13 @@ def train_q_agent(
         agent.decay_epsilon()
 
         if episode % report_every == 0:
-            eval_summary = evaluate_agent(agent, evaluation_games)
             print(
-                f"Episode {episode:04d} | epsilon={agent.epsilon:.3f} | "
-                f"last_episode_reward={episode_reward:.2f} | "
+                f"Episode {episode:04d} finished | epsilon={agent.epsilon:.3f} | "
+                f"last_episode_reward={episode_reward:.2f} | running evaluation..."
+            )
+            eval_summary = evaluate_agent(agent, evaluation_games, max_turns=evaluation_max_turns)
+            print(
+                f"Episode {episode:04d} evaluation | "
                 f"eval_p1_wins={eval_summary['Player 1']} | "
                 f"eval_p2_wins={eval_summary['Player 2']} | "
                 f"eval_draws={eval_summary['draw']}"
@@ -447,10 +456,10 @@ def train_q_agent(
     return agent
 
 
-def evaluate_agent(agent: QAgent, game_count: int = 50) -> Dict[str, int]:
+def evaluate_agent(agent: QAgent, game_count: int = 10, max_turns: int = 80) -> Dict[str, int]:
     """Evaluates the learned agent with exploration turned off."""
 
-    env = SiyayaTrainingEnv()
+    env = SiyayaTrainingEnv(max_turns=max_turns)
     saved_epsilon = agent.epsilon
     agent.epsilon = 0.0
 
@@ -481,14 +490,20 @@ def print_first_steps_tutorial() -> None:
 def main() -> None:
     print_first_steps_tutorial()
     print("=== Random baseline ===")
-    run_random_baseline(game_count=2, verbose_first_game=False)
+    run_random_baseline(game_count=2, verbose_first_game=False, max_turns=80)
 
     print("\n=== Q-learning demo ===")
     print("This is a short demo run. Increase episode_count later once you are comfortable.")
-    agent = train_q_agent(episode_count=10, report_every=1, evaluation_games=2)
+    agent = train_q_agent(
+        episode_count=100,
+        report_every=10,
+        evaluation_games=1,
+        max_turns=80,
+        evaluation_max_turns=80,
+    )
 
     print("\n=== Final evaluation ===")
-    summary = evaluate_agent(agent, game_count=2)
+    summary = evaluate_agent(agent, game_count=2, max_turns=80)
     print(summary)
 
 

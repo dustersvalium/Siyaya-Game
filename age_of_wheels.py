@@ -163,6 +163,18 @@ PROVINCE_TEXT_COLORS = {
     "Eastern Cape": "#84d9a5"
 }
 
+LABEL_DIRECTIONS = {
+    "Western Cape": (0, -26),
+    "Northern Cape": (-8, -26),
+    "Free State": (0, 26),
+    "North West": (-20, -18),
+    "Gauteng": (26, -10),
+    "Limpopo": (0, -26),
+    "Mpumalanga": (26, 0),
+    "KwaZulu-Natal": (24, 8),
+    "Eastern Cape": (0, 28),
+}
+
 
 def deep_copy(value):
     return json.loads(json.dumps(value))
@@ -170,6 +182,84 @@ def deep_copy(value):
 
 def edge_key(left, right):
     return "||".join(sorted((left, right)))
+
+
+def stabilize_map_layout(map_data):
+    """Deterministically spreads nodes to reduce overlap on every startup."""
+    data = deep_copy(map_data)
+    nodes = data.get("nodes", [])
+    if not nodes:
+        return data
+
+    province_centers = {}
+    for node in nodes:
+        province = node["province"]
+        province_centers.setdefault(province, [0.0, 0.0, 0])
+        province_centers[province][0] += node["x"]
+        province_centers[province][1] += node["y"]
+        province_centers[province][2] += 1
+
+    for province, values in province_centers.items():
+        province_centers[province] = (values[0] / values[2], values[1] / values[2])
+
+    for _ in range(35):
+        for left_index in range(len(nodes)):
+            left = nodes[left_index]
+            for right_index in range(left_index + 1, len(nodes)):
+                right = nodes[right_index]
+                dx = right["x"] - left["x"]
+                dy = right["y"] - left["y"]
+                distance = math.hypot(dx, dy) or 0.01
+                minimum = 70 if left["type"] == "city" or right["type"] == "city" else 54
+                if distance >= minimum:
+                    continue
+                push = (minimum - distance) / 2.0
+                ux = dx / distance
+                uy = dy / distance
+                left["x"] -= ux * push
+                left["y"] -= uy * push
+                right["x"] += ux * push
+                right["y"] += uy * push
+
+        for node in nodes:
+            center_x, center_y = province_centers[node["province"]]
+            node["x"] += (center_x - node["x"]) * 0.03
+            node["y"] += (center_y - node["y"]) * 0.03
+            node["x"] = int(max(85, min(CANVAS_WIDTH - 85, node["x"])))
+            node["y"] = int(max(80, min(CANVAS_HEIGHT - 120, node["y"])))
+
+    labels = {}
+    for province, center in province_centers.items():
+        members = [node for node in nodes if node["province"] == province]
+        min_x = min(node["x"] for node in members)
+        max_x = max(node["x"] for node in members)
+        max_y = max(node["y"] for node in members)
+        labels[province] = {
+            "x": int((min_x + max_x) / 2),
+            "y": int(max_y + 48),
+        }
+    data["province_labels"] = labels
+    return data
+
+
+def format_money(amount):
+    prefix = "-" if amount < 0 else ""
+    return f"{prefix}R{abs(int(amount))}"
+
+
+def display_node_label(name):
+    replacements = {
+        "Gqeberha (Port Elizabeth)": "Gqeberha\n(Port Elizabeth)",
+        "Witbank/eMalahleni": "Witbank /\neMalahleni",
+        "Louis Trichardt": "Louis\nTrichardt",
+        "Kempton Park": "Kempton\nPark",
+        "East London": "East\nLondon",
+        "Richards Bay": "Richards\nBay",
+        "White River": "White\nRiver",
+        "Pietermaritzburg": "Pietermaritz-\nburg",
+        "Phuthaditjhaba": "Phuthadit-\njhaba",
+    }
+    return replacements.get(name, name)
 
 
 class MapStorage:
@@ -245,9 +335,13 @@ class GameState:
         self.winner = None
         self.pending_police = None
         self.pending_owner_fee = None
+        self.last_transaction = "Opening balance: R120"
+        self.last_transaction_node = "Cape Town"
+        self.last_transaction_color = "#22c55e"
+        self.transaction_version = 1
         self.log_messages = [
             "Cape Town is already claimed at the start of the game.",
-            f"{self.current_player['name']} begins the race with {START_POINTS} points."
+            f"{self.current_player['name']} begins the race with R{START_POINTS} cash."
         ]
 
     @property
@@ -260,6 +354,12 @@ class GameState:
 
     def log(self, message):
         self.log_messages.append(f"Turn {self.turn_number}: {message}")
+
+    def record_transaction(self, text, node_name=None, color="#e5e7eb"):
+        self.last_transaction = text
+        self.last_transaction_node = node_name
+        self.last_transaction_color = color
+        self.transaction_version += 1
 
     def get_edge(self, left, right):
         return self.edges[edge_key(left, right)]
@@ -335,7 +435,7 @@ class GameState:
                 "to": destination,
                 "owner": edge["owner"],
             }
-            return True, f"{edge['owner']} owns this road. Pay 15 points to use it?"
+            return True, f"{edge['owner']} owns this road. Pay R15 to use it?"
         if edge["type"] == "police":
             self.pending_police = {
                 "from": self.current_player["position"],
@@ -360,14 +460,15 @@ class GameState:
         total_required = self.toll_cost(self.pending_owner_fee["from"], destination) + 15
         if player["points"] < total_required:
             self.pending_owner_fee = None
-            return False, "Not enough points for the owner fee and toll."
+            return False, "Not enough cash for the owner fee and toll."
 
         player["points"] -= 15
         for candidate in self.players:
             if candidate["name"] == owner_name:
                 candidate["points"] += 15
                 break
-        self.log(f"{player['name']} paid 15 points to {owner_name} to use the road.")
+        self.log(f"{player['name']} paid R15 to {owner_name} to use the road.")
+        self.record_transaction(f"-R15 Access Fee", destination, "#fb7185")
         current_from = self.pending_owner_fee["from"]
         self.pending_owner_fee = None
         edge = self.get_edge(current_from, destination)
@@ -386,13 +487,14 @@ class GameState:
         if choice == "bribe":
             total = self.toll_cost(self.pending_police["from"], destination) + 15
             if self.current_player["points"] < total:
-                return False, "Not enough points for the toll and the bribe."
+                return False, "Not enough cash for the toll and the bribe."
             self.current_player["points"] -= 15
-            self.log(f"{self.current_player['name']} bribed the police for 15 points.")
+            self.log(f"{self.current_player['name']} bribed the police for R15.")
+            self.record_transaction("-R15 Police Bribe", destination, "#ef4444")
             note = "Bribed the police and kept going."
         else:
             if self.current_player["points"] < self.toll_cost(self.pending_police["from"], destination):
-                return False, "Not enough points for the border toll on that route."
+                return False, "Not enough cash for the border toll on that route."
             self.current_player["skip_turn"] += 1
             self.log(f"{self.current_player['name']} refused the bribe and will miss the next turn.")
             note = "Refused the police demand and accepted the delay."
@@ -404,7 +506,8 @@ class GameState:
         toll = self.toll_cost(player["position"], destination)
         if toll:
             player["points"] -= toll
-            self.log(f"{player['name']} paid a toll of {toll} points on the way to {destination}.")
+            self.log(f"{player['name']} paid a toll of R{toll} on the way to {destination}.")
+            self.record_transaction(f"-R{toll} Toll Fee", destination, "#f59e0b")
         player["position"] = destination
         move_message = f"{player['name']} moved to {destination}."
         if police_note:
@@ -414,11 +517,12 @@ class GameState:
             self.claimed_nodes.add(destination)
             reward = self.nodes[destination]["pts"]
             player["points"] += reward
-            self.log(f"{player['name']} claimed {reward} points from {destination}.")
+            self.log(f"{player['name']} earned R{reward} from {destination}.")
+            self.record_transaction(f"+R{reward} Travel Income", destination, "#22c55e")
         self.pending_police = None
         if player["position"] == "Johannesburg" and player["points"] >= TARGET_POINTS:
             self.winner = player["name"]
-            self.log(f"{player['name']} reached Johannesburg with {player['points']} points and wins.")
+            self.log(f"{player['name']} reached Johannesburg with R{player['points']} and wins.")
             self.phase = "done"
         else:
             self.phase = "invest"
@@ -433,8 +537,9 @@ class GameState:
                 self.current_player["points"] -= option["cost"]
                 self.get_edge(source, destination)["owner"] = self.current_player["name"]
                 self.turn_invested = True
+                self.record_transaction(f"-R{option['cost']} Route Investment", destination, "#a78bfa")
                 self.log(
-                    f"{self.current_player['name']} invested in {source} -> {destination} for {option['cost']} points."
+                    f"{self.current_player['name']} invested in {source} -> {destination} for R{option['cost']}."
                 )
                 return True, "Investment completed."
         return False, "That route is not available for investment."
@@ -472,7 +577,7 @@ class AgeOfWheelsApp:
         self.root.geometry("1360x860")
         self.root.minsize(1280, 800)
         self.storage = MapStorage(os.path.join(os.path.dirname(os.path.abspath(__file__)), MAP_FILE))
-        self.map_data = self.storage.load()
+        self.map_data = stabilize_map_layout(self.storage.load())
         self.game = GameState(self.map_data)
 
         self.editor_mode = False
@@ -481,20 +586,24 @@ class AgeOfWheelsApp:
         self.editor_status_var = tk.StringVar(value="Editor off")
         self.turn_var = tk.StringVar()
         self.phase_var = tk.StringVar()
+        self.cash_event_var = tk.StringVar()
+        self.invest_hint_var = tk.StringVar()
         self.hovered_node = None
         self.tooltip_after_id = None
         self.tooltip_window = None
         self.police_window = None
         self.owner_fee_window = None
-        self.invest_window = None
         self.dragging_node = None
         self.drag_moved = False
         self.selected_nodes = []
+        self.selected_invest_source = None
         self.editor_forms = []
         self.canvas_items = {"nodes": {}, "labels": {}, "edges": {}, "markers": {}}
         self.glow_on = False
         self.glow_after_id = None
         self.last_log_count = 0
+        self.last_transaction_seen = 0
+        self.floating_cash = None
 
         self._configure_theme()
         self._build_ui()
@@ -516,6 +625,8 @@ class AgeOfWheelsApp:
         style.map("Accent.TButton", background=[("active", "#3b82f6")])
         style.configure("Ghost.TButton", background="#1f2937", foreground="#e5e7eb", padding=8, font=("Segoe UI", 10))
         style.map("Ghost.TButton", background=[("active", "#334155")])
+        style.configure("Chip.TButton", background="#162235", foreground="#dbeafe", padding=6, font=("Segoe UI", 9, "bold"))
+        style.map("Chip.TButton", background=[("active", "#21334d")])
         style.configure("Dark.Horizontal.TProgressbar", troughcolor="#0f172a", bordercolor="#0f172a",
                         background="#38bdf8", lightcolor="#38bdf8", darkcolor="#38bdf8")
         style.configure("Editor.TCombobox", fieldbackground="#0f172a", background="#0f172a", foreground="#e5e7eb")
@@ -570,6 +681,11 @@ class AgeOfWheelsApp:
         ttk.Label(summary, textvariable=self.turn_var, style="CardTitle.TLabel").pack(anchor="w")
         ttk.Label(summary, textvariable=self.phase_var, style="Body.TLabel", wraplength=300).pack(anchor="w", pady=(8, 0))
 
+        cash_card = ttk.Frame(sidebar, style="Card.TFrame", padding=14)
+        cash_card.pack(fill="x", pady=(0, 12))
+        ttk.Label(cash_card, text="Latest Cash Flow", style="CardTitle.TLabel").pack(anchor="w")
+        ttk.Label(cash_card, textvariable=self.cash_event_var, style="Body.TLabel", wraplength=300).pack(anchor="w", pady=(8, 0))
+
         self.player_cards = []
         for _ in range(2):
             card = tk.Frame(
@@ -593,6 +709,17 @@ class AgeOfWheelsApp:
         actions = ttk.Frame(sidebar, style="Sidebar.TFrame")
         actions.pack(fill="x", pady=(6, 12))
         ttk.Button(actions, text="New Match", style="Ghost.TButton", command=self.new_match).pack(fill="x")
+
+        self.turn_action_card = ttk.Frame(sidebar, style="Card.TFrame", padding=14)
+        self.turn_action_card.pack(fill="x", pady=(0, 12))
+        ttk.Label(self.turn_action_card, text="Route Shop", style="CardTitle.TLabel").pack(anchor="w")
+        ttk.Label(self.turn_action_card, textvariable=self.invest_hint_var, style="Body.TLabel", wraplength=300).pack(anchor="w", pady=(8, 10))
+        self.invest_source_row = tk.Frame(self.turn_action_card, bg="#182235")
+        self.invest_source_row.pack(fill="x")
+        self.invest_option_grid = tk.Frame(self.turn_action_card, bg="#182235")
+        self.invest_option_grid.pack(fill="x", pady=(8, 0))
+        self.invest_skip_row = tk.Frame(self.turn_action_card, bg="#182235")
+        self.invest_skip_row.pack(fill="x", pady=(8, 0))
 
         editor_panel = ttk.Frame(sidebar, style="Card.TFrame", padding=14)
         editor_panel.pack(fill="x", pady=(0, 12))
@@ -632,9 +759,9 @@ class AgeOfWheelsApp:
         ttk.Label(
             instructions,
             text=(
-                "Move phase: click a neighboring node.\n"
-                "Invest phase: click a glowing node or skip in the popup.\n"
-                "Editor: drag nodes, right-click nodes or edges, and save JSON."
+                "Move: click a glowing neighboring stop.\n"
+                "Route Shop: quick-buy a road after moving, or skip.\n"
+                "Editor: optional map tweaking only."
             ),
             style="Body.TLabel",
             justify="left",
@@ -762,7 +889,9 @@ class AgeOfWheelsApp:
         elif self.game.phase == "invest":
             investable = self.game.invest_sources()
             if node["name"] in investable:
-                self.open_invest_window(node["name"], investable[node["name"]])
+                self.selected_invest_source = node["name"]
+                self.invest_hint_var.set(f"Invest from {node['name']} or skip this turn.")
+                self.refresh_everything()
 
     def on_right_click(self, event):
         if not self.editor_mode:
@@ -780,7 +909,7 @@ class AgeOfWheelsApp:
         x, y = self.world_coords(event)
         node = self.hit_node(x, y)
         if node:
-            self.show_tooltip(event.x + 14, event.y + 18, f"{node['name']}\n{node['province']} · {node['pts']} pts")
+            self.show_tooltip(event.x + 14, event.y + 18, f"{node['name']}\n{node['province']} · R{node['pts']}")
         else:
             self.hide_tooltip()
 
@@ -810,7 +939,7 @@ class AgeOfWheelsApp:
         window.configure(bg="#111827")
         window.transient(self.root)
         form = {}
-        fields = [("Name", "name"), ("Province", "province"), ("Points", "pts"), ("Type", "type")]
+        fields = [("Name", "name"), ("Province", "province"), ("Cash Value", "pts"), ("Type", "type")]
         for row, (label_text, key) in enumerate(fields):
             tk.Label(window, text=label_text, bg="#111827", fg="#e5e7eb", font=("Segoe UI", 10)).grid(
                 row=row, column=0, sticky="w", padx=12, pady=8
@@ -829,7 +958,7 @@ class AgeOfWheelsApp:
             try:
                 pts = int(form["pts"].get().strip())
             except ValueError:
-                messagebox.showerror("Invalid points", "Points must be an integer.", parent=window)
+                messagebox.showerror("Invalid cash value", "Cash value must be an integer.", parent=window)
                 return
             if not new_name or not province or node_type not in {"city", "town"}:
                 messagebox.showerror("Missing data", "Provide a name, province, and type of city or town.", parent=window)
@@ -896,7 +1025,7 @@ class AgeOfWheelsApp:
         }
         entries = {}
         for row, (label, key) in enumerate(
-            [("Name", "name"), ("Province", "province"), ("Points", "pts"), ("Type", "type"), ("X", "x"), ("Y", "y")]
+            [("Name", "name"), ("Province", "province"), ("Cash Value", "pts"), ("Type", "type"), ("X", "x"), ("Y", "y")]
         ):
             tk.Label(window, text=label, bg="#111827", fg="#e5e7eb", font=("Segoe UI", 10)).grid(
                 row=row, column=0, sticky="w", padx=12, pady=8
@@ -913,7 +1042,7 @@ class AgeOfWheelsApp:
                 x = int(entries["x"].get().strip())
                 y = int(entries["y"].get().strip())
             except ValueError:
-                messagebox.showerror("Invalid values", "Points, x and y must be integers.", parent=window)
+                messagebox.showerror("Invalid values", "Cash value, x and y must be integers.", parent=window)
                 return
             name = entries["name"].get().strip()
             province = entries["province"].get().strip()
@@ -967,11 +1096,13 @@ class AgeOfWheelsApp:
             self.reload_map_from_editor()
 
     def reload_map_from_editor(self):
+        self.map_data = stabilize_map_layout(self.map_data)
         self.game.load_map(self.map_data)
         self.selected_nodes = [name for name in self.selected_nodes if name in self.game.nodes]
         self.refresh_everything()
 
     def save_map(self):
+        self.map_data = stabilize_map_layout(self.map_data)
         self.storage.save(self.map_data)
         self.editor_status_var.set("Saved map_data.json.")
         self.log("Map changes saved to map_data.json.")
@@ -1018,14 +1149,14 @@ class AgeOfWheelsApp:
         ).pack(anchor="w", padx=18, pady=(16, 6))
         tk.Label(
             window,
-            text="Bribe for 15 points or refuse and lose your next turn.",
+            text="Bribe for R15 or refuse and lose your next turn.",
             bg="#111827",
             fg="#e5e7eb",
             font=("Segoe UI", 10)
         ).pack(anchor="w", padx=18, pady=(0, 14))
         button_row = tk.Frame(window, bg="#111827")
         button_row.pack(fill="x", padx=18, pady=(0, 18))
-        ttk.Button(button_row, text="Bribe (15 pts)", style="Accent.TButton",
+        ttk.Button(button_row, text="Bribe (R15)", style="Accent.TButton",
                    command=lambda: self.finish_police("bribe")).pack(side="left", fill="x", expand=True, padx=(0, 6))
         ttk.Button(button_row, text="Refuse", style="Ghost.TButton",
                    command=lambda: self.finish_police("refuse")).pack(side="left", fill="x", expand=True)
@@ -1050,7 +1181,7 @@ class AgeOfWheelsApp:
         ).pack(anchor="w", padx=18, pady=(16, 6))
         tk.Label(
             window,
-            text="Pay 15 points to the owner to use this route, or cancel and choose another road.",
+            text="Pay R15 to the owner to use this route, or cancel and choose another road.",
             bg="#111827",
             fg="#e5e7eb",
             font=("Segoe UI", 10),
@@ -1060,7 +1191,7 @@ class AgeOfWheelsApp:
         button_row = tk.Frame(window, bg="#111827")
         button_row.pack(fill="x", padx=18, pady=(0, 18))
         ttk.Button(
-            button_row, text="Pay 15", style="Accent.TButton", command=lambda: self.finish_owner_fee(True)
+            button_row, text="Pay R15", style="Accent.TButton", command=lambda: self.finish_owner_fee(True)
         ).pack(side="left", fill="x", expand=True, padx=(0, 6))
         ttk.Button(
             button_row, text="Cancel", style="Ghost.TButton", command=lambda: self.finish_owner_fee(False)
@@ -1094,65 +1225,18 @@ class AgeOfWheelsApp:
             self.police_window = None
         self.after_action_refresh()
 
-    def open_invest_window(self, source_name, options):
-        if self.invest_window is not None:
-            self.invest_window.destroy()
-        window = tk.Toplevel(self.root)
-        window.title("Invest In Road")
-        window.configure(bg="#111827")
-        window.transient(self.root)
-        window.protocol("WM_DELETE_WINDOW", self.skip_investment)
-        self.invest_window = window
-        title = "Investable roads"
-        if source_name:
-            title = f"Invest from {source_name}"
-        tk.Label(window, text=title, bg="#111827", fg="#f8fafc", font=("Segoe UI", 13, "bold")).pack(
-            anchor="w", padx=18, pady=(16, 10)
-        )
-        container = tk.Frame(window, bg="#111827")
-        container.pack(fill="both", expand=True, padx=18, pady=(0, 18))
-        for option in options:
-            frame = tk.Frame(container, bg="#1f2937")
-            frame.pack(fill="x", pady=4)
-            tk.Label(
-                frame,
-                text=f"{option['source']} -> {option['destination']} ({option['cost']} pts)",
-                bg="#1f2937",
-                fg="#e5e7eb",
-                font=("Segoe UI", 10)
-            ).pack(side="left", padx=10, pady=10)
-            ttk.Button(
-                frame,
-                text="Invest",
-                style="Accent.TButton",
-                command=lambda current=option: self.confirm_investment(current)
-            ).pack(side="right", padx=10, pady=8)
-        ttk.Button(container, text="Skip Investment", style="Ghost.TButton", command=self.skip_investment).pack(
-            fill="x", pady=(10, 0)
-        )
-
     def confirm_investment(self, option):
-        if not messagebox.askyesno(
-            "Confirm Investment",
-            f"Invest in {option['source']} -> {option['destination']} for {option['cost']} points?",
-            parent=self.invest_window
-        ):
-            return
         ok, message = self.game.invest(option["source"], option["destination"])
         if not ok:
             self.log(message)
             self.refresh_everything()
             return
-        if self.invest_window is not None:
-            self.invest_window.destroy()
-            self.invest_window = None
+        self.selected_invest_source = None
         self.game.end_turn()
         self.refresh_everything()
 
     def skip_investment(self):
-        if self.invest_window is not None:
-            self.invest_window.destroy()
-            self.invest_window = None
+        self.selected_invest_source = None
         ok, message = self.game.skip_investment()
         if not ok:
             self.log(message)
@@ -1160,6 +1244,7 @@ class AgeOfWheelsApp:
 
     def new_match(self):
         self.game.new_match()
+        self.selected_invest_source = None
         self.log("Started a new match.")
         self.refresh_everything()
 
@@ -1174,17 +1259,132 @@ class AgeOfWheelsApp:
             if wants_rematch:
                 self.new_match()
             return
-        if self.game.phase == "invest":
-            options = self.game.all_investments()
-            if options:
-                self.open_invest_window(None, options)
-            else:
-                self.game.skip_investment()
-                self.refresh_everything()
+        if self.game.phase == "invest" and not self.game.all_investments():
+            self.game.skip_investment()
+            self.refresh_everything()
 
     def log(self, message):
         self.game.log(message) if not message.startswith("Turn ") else None
         self.refresh_log()
+
+    def update_cash_feedback(self):
+        self.cash_event_var.set(self.game.last_transaction)
+        if self.game.transaction_version != self.last_transaction_seen:
+            self.last_transaction_seen = self.game.transaction_version
+            anchor = self.game.last_transaction_node
+            if anchor and anchor in self.game.nodes:
+                node = self.game.nodes[anchor]
+                self.floating_cash = {
+                    "text": self.game.last_transaction,
+                    "x": node["x"],
+                    "y": node["y"] - 26,
+                    "color": self.game.last_transaction_color,
+                    "ttl": 12,
+                }
+
+    def draw_shadowed_text(self, x, y, text, fill, font, anchor="center", justify="center", shadow="#020617"):
+        self.canvas.create_text(
+            x + 1, y + 1,
+            text=text,
+            fill=shadow,
+            font=font,
+            anchor=anchor,
+            justify=justify
+        )
+        return self.canvas.create_text(
+            x, y,
+            text=text,
+            fill=fill,
+            font=font,
+            anchor=anchor,
+            justify=justify
+        )
+
+    def draw_info_panel(self, x1, y1, x2, y2, title, body_lines):
+        self.canvas.create_rectangle(
+            x1, y1, x2, y2,
+            fill="#08111f",
+            outline="#1e293b",
+            width=2
+        )
+        self.draw_shadowed_text(
+            x1 + 14, y1 + 14,
+            title,
+            fill="#f8fafc",
+            font=("Segoe UI", 11, "bold"),
+            anchor="nw",
+            justify="left"
+        )
+        self.draw_shadowed_text(
+            x1 + 14, y1 + 36,
+            "\n".join(body_lines),
+            fill="#dbeafe",
+            font=("Segoe UI", 9),
+            anchor="nw",
+            justify="left"
+        )
+
+    def refresh_turn_actions(self):
+        for child in self.invest_source_row.winfo_children():
+            child.destroy()
+        for child in self.invest_option_grid.winfo_children():
+            child.destroy()
+        for child in self.invest_skip_row.winfo_children():
+            child.destroy()
+
+        if self.game.phase == "move":
+            self.invest_hint_var.set("Move on the map first. After landing, quick-buy road options appear here.")
+            return
+
+        if self.game.phase == "done":
+            self.invest_hint_var.set("Match complete. Start a new match to play again.")
+            return
+
+        grouped = self.game.invest_sources()
+        if not grouped:
+            self.invest_hint_var.set("No investments available this turn. The game will skip ahead.")
+            return
+
+        sources = sorted(grouped.keys())
+        if self.selected_invest_source not in grouped:
+            self.selected_invest_source = sources[0]
+
+        self.invest_hint_var.set(
+            f"Pick a source two stops ahead, then tap a destination to buy that road."
+        )
+
+        for source in sources:
+            style = "Accent.TButton" if source == self.selected_invest_source else "Chip.TButton"
+            ttk.Button(
+                self.invest_source_row,
+                text=f"From {source}",
+                style=style,
+                command=lambda current=source: self.select_invest_source(current)
+            ).pack(side="left", padx=(0, 6), pady=(0, 6))
+
+        selected_options = grouped[self.selected_invest_source]
+        for index, option in enumerate(selected_options):
+            row = index // 2
+            column = index % 2
+            ttk.Button(
+                self.invest_option_grid,
+                text=f"Buy to {option['destination']}\nR{option['cost']}",
+                style="Accent.TButton",
+                command=lambda current=option: self.confirm_investment(current)
+            ).grid(row=row, column=column, sticky="ew", padx=4, pady=4)
+        self.invest_option_grid.columnconfigure(0, weight=1)
+        self.invest_option_grid.columnconfigure(1, weight=1)
+
+        ttk.Button(
+            self.invest_skip_row,
+            text="Skip This Buy",
+            style="Ghost.TButton",
+            command=self.skip_investment
+        ).pack(fill="x")
+
+    def select_invest_source(self, source_name):
+        self.selected_invest_source = source_name
+        self.refresh_turn_actions()
 
     def refresh_log(self):
         if len(self.game.log_messages) == self.last_log_count:
@@ -1202,12 +1402,13 @@ class AgeOfWheelsApp:
             f"Turn {self.game.turn_number} · {self.game.current_player['name']} · {self.game.current_player['vehicle']}"
         )
         if self.game.phase == "move":
-            phase_text = "Move phase: click a reachable adjacent node."
+            phase_text = "Move phase: click a reachable neighboring stop."
         elif self.game.phase == "invest":
-            phase_text = "Invest phase: click a glowing node, invest from the popup, or skip."
+            phase_text = "Route Shop phase: buy a road from the sidebar or skip."
         else:
             phase_text = "Game over."
         self.phase_var.set(phase_text)
+        self.update_cash_feedback()
 
         for idx, (card, inner, title_label, info_label, bar) in enumerate(self.player_cards):
             player = self.game.players[idx]
@@ -1222,11 +1423,12 @@ class AgeOfWheelsApp:
             info_label.configure(
                 text=(
                     f"Location: {player['position']}\n"
-                    f"Points: {player['points']} / {TARGET_POINTS}\n"
+                    f"Balance: R{player['points']} / R{TARGET_POINTS}\n"
                     f"Skip next turn: {player['skip_turn']}"
                 )
             )
             bar.configure(value=min(player["points"], TARGET_POINTS))
+        self.refresh_turn_actions()
         self.redraw_map()
         self.refresh_log()
         self.root.update_idletasks()
@@ -1263,9 +1465,9 @@ class AgeOfWheelsApp:
             self.canvas.create_line(start["x"], start["y"], end["x"], end["y"], fill=color, width=width, dash=dash)
 
         for province, position in self.map_data.get("province_labels", {}).items():
-            self.canvas.create_text(
+            self.draw_shadowed_text(
                 position["x"], position["y"],
-                text=province,
+                province,
                 fill=PROVINCE_TEXT_COLORS.get(province, "#8ea1b8"),
                 font=("Segoe UI", 14, "bold")
             )
@@ -1299,9 +1501,10 @@ class AgeOfWheelsApp:
                 fill=fill, outline=outline, width=width
             )
             label_fill = "#f8fafc" if node["type"] == "city" else "#dbeafe"
-            self.canvas.create_text(
-                node["x"], node["y"] - radius - 18,
-                text=f"{name}\n({node['pts']})",
+            dx, dy = LABEL_DIRECTIONS.get(node["province"], (0, -24))
+            self.draw_shadowed_text(
+                node["x"] + dx, node["y"] + dy,
+                f"{display_node_label(name)}\nR{node['pts']}",
                 fill=label_fill,
                 justify="center",
                 font=("Segoe UI", 8, "bold" if node["type"] == "city" else "normal")
@@ -1321,78 +1524,103 @@ class AgeOfWheelsApp:
                 fill=player["color"], outline=outline, width=outline_width
             )
 
+        if self.floating_cash and self.floating_cash["ttl"] > 0:
+            offset = 14 - self.floating_cash["ttl"]
+            self.draw_shadowed_text(
+                self.floating_cash["x"],
+                self.floating_cash["y"] - offset,
+                self.floating_cash["text"],
+                fill=self.floating_cash["color"],
+                font=("Segoe UI", 11, "bold")
+            )
+
+        hud_lines = [
+            f"{self.game.current_player['name']} balance: R{self.game.current_player['points']}",
+            f"Target: R{TARGET_POINTS} at Johannesburg",
+            f"Latest: {self.game.last_transaction}",
+        ]
+        self.draw_info_panel(CANVAS_WIDTH - 290, 20, CANVAS_WIDTH - 20, 102, "Cash Tracker", hud_lines)
+
         legend_x = 24
         legend_y = 20
-        self.canvas.create_text(
+        self.canvas.create_rectangle(
+            legend_x - 12, legend_y - 10, legend_x + 308, legend_y + 92,
+            fill="#08111f",
+            outline="#1e293b",
+            width=2
+        )
+        self.draw_shadowed_text(
             legend_x, legend_y,
-            text="Legend",
-            anchor="w",
+            "How to Read the Map",
             fill="#e2e8f0",
-            font=("Segoe UI", 11, "bold")
+            font=("Segoe UI", 11, "bold"),
+            anchor="w"
         )
 
         self.canvas.create_oval(
             legend_x, legend_y + 18, legend_x + 18, legend_y + 36,
             fill="#132f4c", outline="#22d3ee", width=3
         )
-        self.canvas.create_text(
+        self.draw_shadowed_text(
             legend_x + 28, legend_y + 27,
-            text="Reachable move",
-            anchor="w",
+            "Blue glow = move now",
             fill="#cbd5e1",
-            font=("Segoe UI", 9)
+            font=("Segoe UI", 9),
+            anchor="w"
         )
 
         self.canvas.create_oval(
             legend_x + 130, legend_y + 18, legend_x + 148, legend_y + 36,
             fill="#291f08", outline="#facc15", width=4
         )
-        self.canvas.create_text(
+        self.draw_shadowed_text(
             legend_x + 158, legend_y + 27,
-            text="Investable node",
-            anchor="w",
+            "Gold glow = buy road",
             fill="#cbd5e1",
-            font=("Segoe UI", 9)
+            font=("Segoe UI", 9),
+            anchor="w"
         )
 
         self.canvas.create_line(
             legend_x, legend_y + 54, legend_x + 22, legend_y + 54,
             fill="#ef4444", width=3, dash=(7, 4)
         )
-        self.canvas.create_text(
+        self.draw_shadowed_text(
             legend_x + 28, legend_y + 54,
-            text="Police road",
-            anchor="w",
+            "Red dash = police",
             fill="#cbd5e1",
-            font=("Segoe UI", 9)
+            font=("Segoe UI", 9),
+            anchor="w"
         )
 
         self.canvas.create_line(
             legend_x + 130, legend_y + 54, legend_x + 152, legend_y + 54,
             fill="#f59e0b", width=3, dash=(10, 6)
         )
-        self.canvas.create_text(
+        self.draw_shadowed_text(
             legend_x + 158, legend_y + 54,
-            text="Toll border",
-            anchor="w",
+            "Amber dash = toll",
             fill="#cbd5e1",
-            font=("Segoe UI", 9)
+            font=("Segoe UI", 9),
+            anchor="w"
         )
 
         self.canvas.create_oval(
             legend_x, legend_y + 71, legend_x + 14, legend_y + 85,
             fill="#57a0ff", outline="#fde68a", width=3
         )
-        self.canvas.create_text(
+        self.draw_shadowed_text(
             legend_x + 28, legend_y + 78,
-            text="Active player marker",
-            anchor="w",
+            "Gold ring = your turn",
             fill="#cbd5e1",
-            font=("Segoe UI", 9)
+            font=("Segoe UI", 9),
+            anchor="w"
         )
 
     def animate_glow(self):
         self.glow_on = not self.glow_on
+        if self.floating_cash and self.floating_cash["ttl"] > 0:
+            self.floating_cash["ttl"] -= 1
         self.refresh_everything()
         self.glow_after_id = self.root.after(450, self.animate_glow)
 
