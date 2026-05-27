@@ -76,45 +76,108 @@ Every movement decision matters.
 ## Gameplay visuals
 ---------------------------------------------------------------------------------------------
 
-### ***Main map***
+### 🗺️ Main Map
 
-![alt text](<../../../../../var/folders/7g/x5x9v_g941b775trdb9t6kzw0000gn/T/TemporaryItems/NSIRD_screencaptureui_BWmfUu/Screenshot 2026-05-27 at 12.00.15 PM.png>)
-
-
-
-
-### ***Investment system***
-
-![Investment Choices](<Screenshot 2026-05-27 at 12.04.48 PM.png>)
-
-![Nodes Investable From ](<Screenshot 2026-05-27 at 12.05.58 PM.png>)
-    All cities and towns investable from
-![Cash Tracker: Bus invested in Bloem-Welkom](<Screenshot 2026-05-27 at 12.17.12 PM.png>)
-    Payer 1 - Bus (blue) buys route Welkom -> Bloem
-![Bought route](<Screenshot 2026-05-27 at 12.17.48 PM.png>)
-    
-
-![Taxi attempting to use Bus owned road](<Screenshot 2026-05-27 at 12.19.12 PM.png>)
-    Player 1 - Bus (red) attempts to use route bought/owned by Player 2 - Taxi (blue)
+<p align="center">
+  <img src="screenshots/main-map.png" width="850" alt="Main game map">
+  <br>
+  <em>Main gameplay map showing cities, towns, routes, and player positions.</em>
+</p>
 
 
 
+---
 
-### ***Toll/police events***
+### 💰 Investment System
 
-![Police event](<Screenshot 2026-05-27 at 12.11.01 PM.png>)
-    Player 1 - Bus (red) has choice to pay police bribe or refuse, subsequently forfeiting the next round.
+<p align="center">
+  <img src="screenshots/investment-system.png" width="750" alt="Investment choices">
+  <br>
+  <em>Players may purchase and invest in routes to generate additional income.</em>
+</p>
 
-![Player pays toll](<Screenshot 2026-05-27 at 12.25.40 PM.png>)![alt text](<Screenshot 2026-05-27 at 12.26.34 PM.png>)
-    Player moves through tolled route, pays toll .
+<br>
+
+<table align="center">
+  <tr>
+    <td align="center">
+      <img src="screenshots/investable-routes.png" width="350" alt="Investable routes">
+      <br>
+      <em>All cities and towns that can be invested in.</em>
+    </td>
+
+    <td align="center">
+      <img src="screenshots/cash-tracker.png" width="350" alt="Cash tracker">
+      <br>
+      <em>Bus player purchases the Welkom → Bloem route.</em>
+    </td>
+  </tr>
+</table>
+
+<br>
+
+<p align="center">
+  <img src="screenshots/route-purchased.png" width="700" alt="Purchased route">
+  <br>
+  <em>Successfully purchased route now generates revenue for the owner.</em>
+</p>
+
+<br>
+
+<p align="center">
+  <img src="screenshots/blocked-route.png" width="750" alt="Taxi attempting to use owned route">
+  <br>
+  <em>
+    The Taxi player attempts to use a route already owned by the Bus player.
+  </em>
+</p>
 
 
 
+---
+
+### 🚓 Toll / Police Events
+
+<p align="center">
+  <img src="screenshots/police-event.png" width="700" alt="Police event">
+  <br>
+  <em>
+    The Bus player may either pay a bribe or refuse and forfeit the next turn.
+  </em>
+</p>
+
+<br>
+
+<table align="center">
+  <tr>
+    <td align="center">
+      <img src="screenshots/toll-payment.png" width="350" alt="Player pays toll">
+      <br>
+      <em>Player enters a tolled route.</em>
+    </td>
+
+    <td align="center">
+      <img src="screenshots/investment-deduction.png" width="350" alt="Toll deduction">
+      <br>
+      <em>Toll amount deducted from player balance.</em>
+    </td>
+  </tr>
+</table>
 
 
-### ***Winning screen***
-![Winning screen](<Screenshot 2026-05-27 at 12.27.06 PM.png>)
-    Player 2 - Taxi accumulated R200 and reached Johannesburg first, therefore WINS game.
+
+---
+
+### 🏆 Winning Screen
+
+<p align="center">
+  <img src="screenshots/winning-screen.png" width="800" alt="Winning screen">
+  <br>
+  <em>
+    The Taxi player accumulates R200 and reaches Johannesburg first, winning the game.
+  </em>
+</p>
+
 ---------------------------------------------------------------------------------------------
 
 ## Requirements to play
