@@ -105,13 +105,7 @@ Every movement decision matters.
       <br>
       <em>All cities and towns that can be invested in.</em>
     </td>
-
-    <td align="center">
-      <img src="screenshots/cash-tracker.png" width="350" alt="Cash tracker">
-      <br>
-      <em>Bus player purchases the Welkom → Bloem route.</em>
-    </td>
-  </tr>
+  
 </table>
 
 <br>
@@ -155,11 +149,10 @@ Every movement decision matters.
       <br>
       <em>Player enters a tolled route.</em>
     </td>
-
     <td align="center">
-      <img src="screenshots/investment-deduction.png" width="350" alt="Toll deduction">
+      <img src="screenshots/investment-deduction.png" width="350" alt="Investment deduction">
       <br>
-      <em>Toll amount deducted from player balance.</em>
+      <em>Investment amount deducted from player balance.</em>
     </td>
   </tr>
 </table>
