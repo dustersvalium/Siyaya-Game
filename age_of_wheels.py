@@ -663,7 +663,7 @@ class AgeOfWheelsApp:
 
         title = tk.Label(
             sidebar,
-            text="Age of Wheels",
+            text="Siyaya! Age of Wheels",
             bg="#111827",
             fg="#f8fafc",
             font=("Segoe UI", 22, "bold")
