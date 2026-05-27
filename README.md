@@ -8,7 +8,7 @@ Travel the map, build wealth, sabotage your opponent’s movement, and become th
 
 ---------------------------------------------------------------------------------------------
 
-## 🎮 Game Overview
+## Game Overview
 ---------------------------------------------------------------------------------------------
 Two players compete to earn money by traveling between towns and cities across South Africa.
 
@@ -76,22 +76,45 @@ Every movement decision matters.
 ## Gameplay visuals
 ---------------------------------------------------------------------------------------------
 
-* Main map
+### ***Main map***
+
 ![alt text](<../../../../../var/folders/7g/x5x9v_g941b775trdb9t6kzw0000gn/T/TemporaryItems/NSIRD_screencaptureui_BWmfUu/Screenshot 2026-05-27 at 12.00.15 PM.png>)
 
-* Investment system
+
+
+
+### ***Investment system***
+
 ![Investment Choices](<Screenshot 2026-05-27 at 12.04.48 PM.png>)
+
 ![Nodes Investable From ](<Screenshot 2026-05-27 at 12.05.58 PM.png>)
+    All cities and towns investable from
 ![Cash Tracker: Bus invested in Bloem-Welkom](<Screenshot 2026-05-27 at 12.17.12 PM.png>)
+    Payer 1 - Bus (blue) buys route Welkom -> Bloem
 ![Bought route](<Screenshot 2026-05-27 at 12.17.48 PM.png>)
+    
+
 ![Taxi attempting to use Bus owned road](<Screenshot 2026-05-27 at 12.19.12 PM.png>)
+    Player 1 - Bus (red) attempts to use route bought/owned by Player 2 - Taxi (blue)
 
-* Toll/police events
+
+
+
+### ***Toll/police events***
+
 ![Police event](<Screenshot 2026-05-27 at 12.11.01 PM.png>)
-![Player pays toll](<Screenshot 2026-05-27 at 12.25.40 PM.png>)![alt text](<Screenshot 2026-05-27 at 12.26.34 PM.png>)
+    Player 1 - Bus (red) has choice to pay police bribe or refuse, subsequently forfeiting the next round.
 
-* Winning screen
+![Player pays toll](<Screenshot 2026-05-27 at 12.25.40 PM.png>)![alt text](<Screenshot 2026-05-27 at 12.26.34 PM.png>)
+    Player moves through tolled route, pays toll .
+
+
+
+
+
+### ***Winning screen***
 ![Winning screen](<Screenshot 2026-05-27 at 12.27.06 PM.png>)
+    Player 2 - Taxi accumulated R200 and reached Johannesburg first, therefore WINS game.
 ---------------------------------------------------------------------------------------------
 
 ## Requirements to play
