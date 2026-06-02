@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Siyaya Training Dashboard</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Helvetica, Arial, sans-serif;
+      background: #08101b;
+      color: #f2f6fc;
+    }
+    header {
+      padding: 28px 32px 8px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 32px;
+    }
+    p {
+      margin: 0;
+      color: #c3d2e8;
+    }
+    main {
+      padding: 24px 24px 40px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+      gap: 20px;
+    }
+    .card {
+      background: #101a2b;
+      border: 1px solid #1f2d46;
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.22);
+    }
+    .card h2 {
+      margin: 0 0 12px;
+      font-size: 18px;
+    }
+    .card img {
+      width: 100%;
+      height: auto;
+      border-radius: 12px;
+      display: block;
+      background: #0c1220;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Siyaya Training Dashboard</h1>
+    <p>Charts generated from training_progress.csv and evaluation_history.csv</p>
+  </header>
+  <main>
+    
+            <section class="card">
+              <h2>Episode Reward Over Time</h2>
+              <img src="episode_reward.svg" alt="Episode Reward Over Time" />
+            </section>
+            
+            <section class="card">
+              <h2>Exploration Decay (Epsilon)</h2>
+              <img src="epsilon_decay.svg" alt="Exploration Decay (Epsilon)" />
+            </section>
+            
+            <section class="card">
+              <h2>Q-Table Growth</h2>
+              <img src="q_table_size.svg" alt="Q-Table Growth" />
+            </section>
+            
+            <section class="card">
+              <h2>Evaluation Wins by Opponent Type</h2>
+              <img src="evaluation_wins.svg" alt="Evaluation Wins by Opponent Type" />
+            </section>
+            
+            <section class="card">
+              <h2>Evaluation Draws by Opponent Type</h2>
+              <img src="evaluation_draws.svg" alt="Evaluation Draws by Opponent Type" />
+            </section>
+            
+            <section class="card">
+              <h2>Random vs Heuristic Comparison</h2>
+              <img src="random_vs_heuristic_comparison.svg" alt="Random vs Heuristic Comparison" />
+            </section>
+            
+  </main>
+</body>
+</html>
