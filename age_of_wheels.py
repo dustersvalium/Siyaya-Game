@@ -314,7 +314,9 @@ class GameState:
                 "vehicle": vehicles[0],
                 "position": "Cape Town",
                 "points": START_POINTS,
-                "skip_turn": 0
+                "skip_turn": 0,
+                "turns_taken": 0,
+                "travel_history": {"Cape Town"},
             },
             {
                 "name": "Player 2",
@@ -322,7 +324,9 @@ class GameState:
                 "vehicle": vehicles[1],
                 "position": "Cape Town",
                 "points": START_POINTS,
-                "skip_turn": 0
+                "skip_turn": 0,
+                "turns_taken": 0,
+                "travel_history": {"Cape Town"},
             }
         ]
         for edge in self.edges.values():
@@ -365,11 +369,9 @@ class GameState:
         return self.edges[edge_key(left, right)]
 
     def toll_cost(self, from_name, to_name):
-        origin = self.nodes[from_name]
-        destination = self.nodes[to_name]
-        border = self.map_data.get("province_borders", {}).get(origin["province"])
-        if border and edge_key(*border) == edge_key(from_name, to_name) and origin["province"] != destination["province"]:
-            return math.ceil(destination["pts"] / 2)
+        edge = self.get_edge(from_name, to_name)
+        if edge["type"] == "toll_border":
+            return 12
         return 0
 
     def bfs_distances(self, start_name):
@@ -397,21 +399,41 @@ class GameState:
             moves.append(neighbor)
         return moves
 
+    def current_personal_turn(self, player=None):
+        current = player or self.current_player
+        return current["turns_taken"] + 1
+
+    def investment_turns_remaining(self, player=None):
+        return 0 if self.current_personal_turn(player) % 2 == 0 else 1
+
+    def can_offer_investment(self, player=None):
+        current = player or self.current_player
+        return (
+            self.phase == "invest"
+            and not self.turn_invested
+            and not self.winner
+            and not self.pending_police
+            and self.current_personal_turn(current) % 2 == 0
+        )
+
     def invest_sources(self):
-        if self.phase != "invest" or self.turn_invested or self.winner or self.pending_police:
+        if not self.can_offer_investment():
             return {}
+        player = self.current_player
         distances = self.bfs_distances(self.current_player["position"])
         sources = {}
         for start, distance in distances.items():
             if distance != 2:
                 continue
+            if start in player["travel_history"]:
+                continue
             options = []
             for neighbor in sorted(self.adjacency[start]):
                 edge = self.get_edge(start, neighbor)
-                if edge["owner"]:
+                if edge["owner"] or edge["type"] != "normal":
                     continue
                 cost = self.nodes[neighbor]["pts"]
-                if self.current_player["points"] >= cost:
+                if player["points"] >= cost:
                     options.append({"source": start, "destination": neighbor, "cost": cost})
             if options:
                 sources[start] = options
@@ -509,6 +531,7 @@ class GameState:
             self.log(f"{player['name']} paid a toll of R{toll} on the way to {destination}.")
             self.record_transaction(f"-R{toll} Toll Fee", destination, "#f59e0b")
         player["position"] = destination
+        player["travel_history"].add(destination)
         move_message = f"{player['name']} moved to {destination}."
         if police_note:
             move_message += f" {police_note}"
@@ -550,6 +573,7 @@ class GameState:
     def end_turn(self):
         if not self.can_end_turn():
             return False, "Finish moving before ending the turn."
+        self.current_player["turns_taken"] += 1
         self.current_player_index = 1 - self.current_player_index
         self.turn_number += 1
         self.phase = "move"
@@ -563,10 +587,13 @@ class GameState:
         self.log(f"It is now {self.current_player['name']}'s turn.")
         return True, "Turn ended."
 
-    def skip_investment(self):
+    def skip_investment(self, reason=None):
         if self.phase != "invest":
             return False, "You can only skip during the investment phase."
-        self.log(f"{self.current_player['name']} skipped investment.")
+        if reason:
+            self.log(reason)
+        else:
+            self.log(f"{self.current_player['name']} skipped investment.")
         return self.end_turn()
 
 
@@ -757,7 +784,7 @@ class AgeOfWheelsApp:
             instructions,
             text=(
                 "Move: click a glowing neighboring stop.\n"
-                "Route Shop: quick-buy a road after moving, or skip.\n"
+                "Route Shop: opens every second personal turn.\n"
                 "Editor: optional map tweaking only."
             ),
             style="Body.TLabel",
@@ -1257,7 +1284,13 @@ class AgeOfWheelsApp:
                 self.new_match()
             return
         if self.game.phase == "invest" and not self.game.all_investments():
-            self.game.skip_investment()
+            if not self.game.can_offer_investment():
+                reason = f"{self.game.current_player['name']} can only buy roads every second personal turn."
+            else:
+                reason = (
+                    f"{self.game.current_player['name']} has no eligible Route Shop buys from untraveled source nodes."
+                )
+            self.game.skip_investment(reason=reason)
             self.refresh_everything()
 
     def log(self, message):
@@ -1330,7 +1363,10 @@ class AgeOfWheelsApp:
             child.destroy()
 
         if self.game.phase == "move":
-            self.invest_hint_var.set("Move on the map first. After landing, quick-buy road options appear here.")
+            if self.game.investment_turns_remaining() == 0:
+                self.invest_hint_var.set("Move on the map first. Route Shop is open this turn after you land.")
+            else:
+                self.invest_hint_var.set("Move on the map first. Route Shop opens on your next personal turn.")
             return
 
         if self.game.phase == "done":
@@ -1339,7 +1375,10 @@ class AgeOfWheelsApp:
 
         grouped = self.game.invest_sources()
         if not grouped:
-            self.invest_hint_var.set("No investments available this turn. The game will skip ahead.")
+            if not self.game.can_offer_investment():
+                self.invest_hint_var.set("Route Shop opens every second personal turn. This buy window is closed.")
+            else:
+                self.invest_hint_var.set("No eligible roads: buy only from source nodes you have not traveled through.")
             return
 
         sources = sorted(grouped.keys())
@@ -1347,7 +1386,7 @@ class AgeOfWheelsApp:
             self.selected_invest_source = sources[0]
 
         self.invest_hint_var.set(
-            f"Pick a source two stops ahead, then tap a destination to buy that road."
+            "Pick an untraveled source two stops ahead, then tap a destination to buy that road."
         )
 
         for source in sources:
